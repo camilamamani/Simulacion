@@ -9,7 +9,6 @@ sys.setrecursionlimit(90000)
 # IA: Intervalo entre arribos de llamadas de clientes en minutos
 def ia():
     R = generar_random_precision_ia()
-    #print("R ia", R)
     return pow((pow(1-R, 1/-4.7695)-1) * pow(1719, 1.387), 1/1.387)
 
 # TFM: Tiempo de fin fabricacion de muebles en minutos
@@ -20,15 +19,12 @@ def tff():
 # CP: Cantidad pedida de muebles en unidades/pedido
 def cp():
     R = generar_random_precision_cp()
-    #print("R cp", R)
-    cp = math.log((1 - R) / 0.91947, 0.91947)
-    #print("cp", cp)
-    #print("cp redondeo =", math.ceil(cp))
+    cp = math.log((1 - R) / 0.95805, 0.95805)
     return math.ceil(cp)
 
 def generar_random_precision_cp():
     R = generar_random()
-    if R < 0.1000 or R > 0.9999:
+    if R < 0.1 or R > 0.9999:
         return generar_random_precision_cp()
     else:
         return round(R, 4)
@@ -48,13 +44,18 @@ def generar_random():
 
 # --------------- Variables Simulacion ---------------
 class VariablesSimulacion():
-    def __init__(self, CSI, CE, TF):
+    def __init__(self, CSI, CE, TF, N):
         # CSI: Cantidad de stock inicial
         self.CSI = CSI
         # CE: Cantidad de empleados
         self.CE = CE
         # TF: Tiempo final de simulación
         self.TF = TF
+
+        # N_REPS: Cantidad de repeticiones 
+        self.N_REPS = N
+        #self.flagsim = 0
+        #self.PCSI = CSI
 
         # HV: High Value
         self.HV = float('inf')
@@ -82,6 +83,13 @@ class VariablesSimulacion():
         # ARR: Cantidad de arrepentidos
         self.ARR = 0
 
+        # PMNV: Porcentaje de muebles no vendidos acumulado
+        self.PMNVAC = [0] * self.N_REPS
+        # PCLI: Porcentaje de clientes insatisfechos acumulado
+        self.PCLIAC = [0] * self.N_REPS
+        # PMSF: Porcentaje de muebles en stock final respecto CSA acumulado
+        self.PMSFAC = [0] * self.N_REPS
+
         # PMNV: Porcentaje de muebles no vendidos
         self.PMNV = 0
         # PCLI: Porcentaje de clientes insatisfechos
@@ -100,22 +108,25 @@ def imprimir_resultados(vars):
     print("Variables de control elegidas:")
     print("CSI =", vars.CSI)
     print("CE =", vars.CE)
-    print("TF =",vars.TF)
+    print("TF =", vars.TF)
 
-    print("Resultados:")
+    print("Resultados Promedio para las", vars.N_REPS, "repeticiones:")
     print("Porcentaje de muebles no vendidos =", vars.PMNV, "%")
     print("Porcentaje de clientes insatisfechos =", vars.PCLI, "%")
     print("Porcentaje de stock final respecto al inicial =", vars.PMSF, "%")
 
-
 def ir_al_final(vars):
-    #if vars.T < vars.TF:
-     #   iniciar_simulacion(vars)
-    #else:
-        vars.PMNV = (vars.CMP / vars.CMT) * 100
-        vars.PCLI = (vars.CLI / vars.CLT) * 100
-        vars.PMSF = (vars.CSA / vars.CSI) * 100
-        imprimir_resultados(vars)
+    
+    for i in range(vars.N_REPS):
+        vars.PMNV += vars.PMNVAC[i]
+        vars.PCLI += vars.PCLIAC[i]
+        vars.PMSF += vars.PMSFAC[i]
+
+    vars.PMNV /= vars.N_REPS
+    vars.PCLI /= vars.N_REPS
+    vars.PMSF /= vars.N_REPS
+
+    imprimir_resultados(vars)
 
 
 def avanzar_rama_fin_fabric(vars, i):
@@ -149,18 +160,48 @@ def avanzar_rama_llegada(vars):
         vars.ARR += 1
    # ir_al_final(vars)
 
+
+def reset_variables(vars):
+    #vars.CSI = vars.PCSI #Stock inicial no cambia
+    #vars.CE = vars.PCE #CE no cambia
+    vars.CSA = vars.CSI
+    vars.T = 0
+    vars.TPLL = 0
+    for i in range(vars.CE):
+        vars.TPFF[i] = 0
+    vars.CLT = 0
+    vars.CLI = 0
+    vars.CMT = 0
+    vars.CMP = 0
+    vars.ARR = 0
+
+
+def resultados_parciales(vars, indice):
+    vars.PMNVAC[indice] = (vars.CMP / vars.CMT) * 100
+    vars.PCLIAC[indice] = (vars.CLI / vars.CLT) * 100
+    vars.PMSFAC[indice] = (vars.CSA / vars.CSI) * 100
+
+
 def indice_menor_tpff(vars):
     return vars.TPFF.index(min(vars.TPFF))
 
 def iniciar_simulacion(vars):
-    while vars.T<vars.TF:
-        i = indice_menor_tpff(vars)
+    cont = 0 
+    while cont < vars.N_REPS:
+        
+        while vars.T < vars.TF:
+            i = indice_menor_tpff(vars)
 
-        if vars.TPLL <= vars.TPFF[i]:
-            avanzar_rama_llegada(vars)
+            if vars.TPLL <= vars.TPFF[i]:
+                avanzar_rama_llegada(vars)
 
-        else:
-            avanzar_rama_fin_fabric(vars, i)
+            else:
+                avanzar_rama_fin_fabric(vars, i)
+        
+        resultados_parciales(vars, cont)
+        cont += 1
+        reset_variables(vars)
+    
     ir_al_final(vars)
 
 # --------------- FIN Funciones ---------------
@@ -175,10 +216,13 @@ if __name__ == '__main__':
 
     # Ingresamos TF de simulación
     tf_simulacion =int(input("Ingrese el tiempo final de simulación en minutos: "))
-    #tf_simulacion=80000
-    #print(type(tf_simulacion))
+    
+    # Ingresamos Cantidad de repeticiones
+    n_repeticiones =int(input("Cantidad de repetiones: "))
+    
     # Seteamos condiciones iniciales
-    var_sim = VariablesSimulacion(cant_stock_inic, cant_empl, tf_simulacion)
+    var_sim = VariablesSimulacion(cant_stock_inic, cant_empl, tf_simulacion, n_repeticiones)
+    
     # Iniciamos simulación
     iniciar_simulacion(var_sim)
 
